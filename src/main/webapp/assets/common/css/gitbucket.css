@@ -1009,6 +1009,12 @@ div.author-info div.committer {
 /****************************************************************************/
 /* Diff */
 /****************************************************************************/
+
+div.diff-table-wrap {
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
 table.diff {
     font-size: 12px;
     font-family: Monaco, Menlo, Consolas, "Courier New", monospace;
@@ -1028,20 +1034,43 @@ td.insert, td.equal, td.delete, td.empty {
 }
 
 table.diff .add-comment {
-    position: absolute;
+    position: relative;
     background: blue;
-    top: 0;
-    left: -7px;
     color: white;
-    padding: 2px 4px;
-    border: solid 1px blue;
-    border-radius: 3px;
     z-index: 99;
+    float: left;
+    width: 20px;
+    height: 20px;
+    margin: -1px -10px -1px -20px;
+    line-height: 20px;
+    text-align: center;
+    text-indent: 0;
+    border-radius: 3px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+    opacity: 0;
+}
+table.diff .not-add-comment {
+    position: relative;
+    background: blue;
+    color: white;
+    z-index: 99;
+    float: left;
+    width: 20px;
+    height: 20px;
+    margin: -1px -10px -1px -20px;
+    line-height: 20px;
+    text-align: center;
+    text-indent: 0;
+    border-radius: 3px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+    opacity: 0;
 }
 
-table.diff .add-comment:hover {
-    padding: 4px 6px;
-    top: -1px;
+table.diff > tbody > tr.diff-row:hover > td > b.add-comment {
+    /*padding: 4px 6px;*/
+    /*top: -1px;*/
+    /*display: inline-block;*/
+    opacity: 1;
 }
 
 table.diff tbody tr.not-diff {
@@ -1072,6 +1101,77 @@ table.diff tbody tr.not-diff:hover td{
 
 .diff .skipline:before {
     content: "..."
+}
+
+span.editNewInline {
+    background-color: #a6f3a6;
+}
+
+span.editOldInline {
+    background-color: #f8cbcb;
+}
+
+div.inlinediff div.insert, div.inlinediff div.equal, div.inlinediff div.delete {
+    width: 900px;
+}
+
+div.insert, div.equal, div.delete, div.empty {
+    width: 50%;
+}
+
+td.newline {
+    font-family: Monaco, Menlo, Consolas, "Courier New", monospace;
+    background-color:#FBFBFB;
+    font-size:11px;
+    font-weight:normal;
+    border-top:none; /* for overriding bootstrap */
+    color:#886;
+    text-align:right;
+    vertical-align:top;
+
+    padding: 0px 10px;
+    box-sizing:border-box;
+}
+
+
+td.oldline {
+    font-family: Monaco, Menlo, Consolas, "Courier New", monospace;
+    background-color:#FBFBFB;
+    font-size:11px;
+    font-weight:normal;
+    border-top:none; /* for overriding bootstrap */
+    color:#886;
+    text-align:right;
+    vertical-align:top;
+
+    padding: 0px 10px;
+    box-sizing:border-box;
+
+}
+
+.diff .blob-code {
+    padding: 0px 10px;
+    line-height: 18px;
+    white-space: pre;
+    border-bottom-style: none;
+    border-top-style: none;
+}
+
+.diff .blob-line-number {
+    min-width: 50px;
+    width: 1%;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    line-height: 18px;
+}
+
+td.insert {
+    background-color: #EAFFEA
+}
+
+td.delete {
+    background-color:#FFDDDD;
 }
 
 /****************************************************************************/

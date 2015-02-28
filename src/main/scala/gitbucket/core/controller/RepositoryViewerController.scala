@@ -233,15 +233,19 @@ trait RepositoryViewerControllerBase extends ControllerBase {
    */
   get("/:owner/:repository/commit/:id")(referrersOnly { repository =>
     val id = params("id")
+    val isSplit = params.get("diff") match {
+      case Some("split") => true
+      case _ => false
+    }
 
     using(Git.open(getRepositoryDir(repository.owner, repository.name))){ git =>
       defining(JGitUtil.getRevCommitFromId(git, git.getRepository.resolve(id))){ revCommit =>
-        JGitUtil.getDiffs(git, id) match { case (diffs, oldCommitId) =>
+        JGitUtil.getDiffs(git, id, isSplit, true) match { case (diffs, oldCommitId) =>
           html.commit(id, new JGitUtil.CommitInfo(revCommit),
             JGitUtil.getBranchesOfCommit(git, revCommit.getName),
             JGitUtil.getTagsOfCommit(git, revCommit.getName),
             getCommitComments(repository.owner, repository.name, id, false),
-            repository, diffs, oldCommitId, hasWritePermission(repository.owner, repository.name, context.loginAccount))
+            repository, diffs, isSplit, oldCommitId, hasWritePermission(repository.owner, repository.name, context.loginAccount))
         }
       }
     }

@@ -42,8 +42,8 @@ object MyBuild extends Build {
     ),
     scalacOptions := Seq("-deprecation", "-language:postfixOps"),
     libraryDependencies ++= Seq(
-      "org.eclipse.jgit" % "org.eclipse.jgit.http.server" % "3.4.1.201406201815-r",
-      "org.eclipse.jgit" % "org.eclipse.jgit.archive" % "3.4.1.201406201815-r",
+      "org.eclipse.jgit" % "org.eclipse.jgit.http.server" % "3.7.0.201502260915-r",
+      "org.eclipse.jgit" % "org.eclipse.jgit.archive" % "3.7.0.201502260915-r",
       "org.scalatra" %% "scalatra" % ScalatraVersion,
       "org.scalatra" %% "scalatra-specs2" % ScalatraVersion % "test",
       "org.scalatra" %% "scalatra-json" % ScalatraVersion,
@@ -64,7 +64,8 @@ object MyBuild extends Build {
       "junit" % "junit" % "4.11" % "test",
       "com.mchange" % "c3p0" % "0.9.5",
       "com.typesafe" % "config" % "1.2.1",
-      "com.typesafe.play" %% "twirl-compiler" % "1.0.2"
+      "com.typesafe.play" %% "twirl-compiler" % "1.0.2",
+      "com.googlecode.java-diff-utils" % "diffutils" % "1.3.0"
     ),
     play.twirl.sbt.Import.TwirlKeys.templateImports += "gitbucket.core._",
     EclipseKeys.withSource := true,

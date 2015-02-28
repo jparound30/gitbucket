@@ -1,5 +1,6 @@
 @(commits: Seq[Seq[gitbucket.core.util.JGitUtil.CommitInfo]],
-  diffs: Seq[gitbucket.core.util.JGitUtil.DiffInfo],
+  diffs: Seq[gitbucket.core.util.JGitUtil.DiffInfoExtend],
+  isSplit: Boolean,
   members: List[(String, String)],
   comments: List[gitbucket.core.model.Comment],
   originId: String,
@@ -83,7 +84,7 @@
       </table>
     } else {
       @pulls.html.commits(commits, Some(comments), repository)
-      @helper.html.diff(diffs, repository, Some(commitId), Some(sourceId), true, None, hasWritePermission, false)
+      @helper.html.diff(diffs, isSplit, repository, Some(commitId), Some(sourceId), true, None, hasWritePermission, false)
       <p>Showing you all comments on commits in this comparison.</p>
       @issues.html.commentlist(None, comments, hasWritePermission, repository, None)
     }

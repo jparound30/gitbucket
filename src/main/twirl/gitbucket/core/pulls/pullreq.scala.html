@@ -6,7 +6,8 @@
   milestones: List[(gitbucket.core.model.Milestone, Int, Int)],
   labels: List[gitbucket.core.model.Label],
   dayByDayCommits: Seq[Seq[gitbucket.core.util.JGitUtil.CommitInfo]],
-  diffs: Seq[gitbucket.core.util.JGitUtil.DiffInfo],
+  diffs: Seq[gitbucket.core.util.JGitUtil.DiffInfoExtend],
+  isSplit: Boolean,
   hasWritePermission: Boolean,
   repository: gitbucket.core.service.RepositoryService.RepositoryInfo)(implicit context: gitbucket.core.controller.Context)
 @import context._
@@ -78,7 +79,7 @@
           @pulls.html.commits(dayByDayCommits, Some(comments), repository)
         </div>
         <div class="tab-pane" id="files">
-          @helper.html.diff(diffs, repository, Some(commits.head.id), Some(commits.last.id), true, Some(pullreq.issueId), hasWritePermission, true)
+          @helper.html.diff(diffs, isSplit, repository, Some(commits.head.id), Some(commits.last.id), true, Some(pullreq.issueId), hasWritePermission, true)
         </div>
       </div>
     }

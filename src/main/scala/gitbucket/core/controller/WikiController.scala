@@ -64,18 +64,26 @@ trait WikiControllerBase extends ControllerBase {
   get("/:owner/:repository/wiki/:page/_compare/:commitId")(referrersOnly { repository =>
     val pageName = StringUtil.urlDecode(params("page"))
     val Array(from, to) = params("commitId").split("\\.\\.\\.")
+    val isSplit = params.get("diff") match {
+      case Some("split") => true
+      case _ => false
+    }
 
     using(Git.open(getWikiRepositoryDir(repository.owner, repository.name))){ git =>
-      html.compare(Some(pageName), from, to, JGitUtil.getDiffs(git, from, to, true).filter(_.newPath == pageName + ".md"), repository,
+      html.compare(Some(pageName), from, to, JGitUtil.getDiffs(git, from, to, isSplit, true).filter(_.newPath == pageName + ".md"), repository,
         hasWritePermission(repository.owner, repository.name, context.loginAccount), flash.get("info"))
     }
   })
   
   get("/:owner/:repository/wiki/_compare/:commitId")(referrersOnly { repository =>
     val Array(from, to) = params("commitId").split("\\.\\.\\.")
+    val isSplit = params.get("diff") match {
+      case Some("split") => true
+      case _ => false
+    }
 
     using(Git.open(getWikiRepositoryDir(repository.owner, repository.name))){ git =>
-      html.compare(None, from, to, JGitUtil.getDiffs(git, from, to, true), repository,
+      html.compare(None, from, to, JGitUtil.getDiffs(git, from, to, isSplit, true), repository,
         hasWritePermission(repository.owner, repository.name, context.loginAccount), flash.get("info"))
     }
   })

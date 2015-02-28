@@ -1,7 +1,11 @@
 package gitbucket.core.util
 
+import java.io.{OutputStream, ByteArrayOutputStream}
+
 import gitbucket.core.service.RepositoryService
 import org.eclipse.jgit.api.Git
+import org.eclipse.jgit.diff.{RawText, DiffEntry, DiffFormatter}
+import org.eclipse.jgit.util.io.NullOutputStream
 import Directory._
 import StringUtil._
 import ControlUtil._
@@ -19,6 +23,10 @@ import java.util.Date
 import org.eclipse.jgit.api.errors.{JGitInternalException, InvalidRefNameException, RefAlreadyExistsException, NoHeadException}
 import org.eclipse.jgit.dircache.DirCacheEntry
 import org.slf4j.LoggerFactory
+
+//import difflib._
+
+import scala.collection.mutable.ArrayBuffer
 
 /**
  * Provides complex JGit operations.
@@ -100,7 +108,9 @@ object JGitUtil {
     def isDifferentFromAuthor: Boolean = authorName != committerName || authorEmailAddress != committerEmailAddress
   }
 
-  case class DiffInfo(changeType: ChangeType, oldPath: String, newPath: String, oldContent: Option[String], newContent: Option[String])
+//  case class DiffInfo(changeType: ChangeType, oldPath: String, newPath: String, oldContent: Option[String], newContent: Option[String])
+
+  case class DiffInfoExtend(changeType: ChangeType, oldPath: String, newPath: String, diffContent: Option[List[DiffRow]])
 
   /**
    * The file content data for the file content view of the repository viewer.
@@ -315,7 +325,7 @@ object JGitUtil {
           if(path.nonEmpty){
             revWalk.setRevFilter(new RevFilter(){
               def include(walk: RevWalk, commit: RevCommit): Boolean = {
-                getDiffs(git, commit.getName, false)._1.find(_.newPath == path).nonEmpty
+                getDiffs(git, commit.getName, false, false)._1.find(_.newPath == path).nonEmpty
               }
               override def clone(): RevFilter = this
             })
@@ -391,7 +401,7 @@ object JGitUtil {
   /**
    * Returns the tuple of diff of the given commit and the previous commit id.
    */
-  def getDiffs(git: Git, id: String, fetchContent: Boolean = true): (List[DiffInfo], Option[String]) = {
+  def getDiffs(git: Git, id: String, isSplit: Boolean, fetchContent: Boolean/* = true*/): (List[DiffInfoExtend], Option[String]) = {
     @scala.annotation.tailrec
     def getCommitLog(i: java.util.Iterator[RevCommit], logs: List[RevCommit]): List[RevCommit] =
       i.hasNext match {
@@ -412,19 +422,37 @@ object JGitUtil {
         } else {
           commits(1)
         }
-        (getDiffs(git, oldCommit.getName, id, fetchContent), Some(oldCommit.getName))
+        (getDiffs(git, oldCommit.getName, id, isSplit, fetchContent), Some(oldCommit.getName))
 
       } else {
         // initial commit
         using(new TreeWalk(git.getRepository)){ treeWalk =>
           treeWalk.addTree(revCommit.getTree)
-          val buffer = new scala.collection.mutable.ListBuffer[DiffInfo]()
+          val buffer = new scala.collection.mutable.ListBuffer[DiffInfoExtend]()
           while(treeWalk.next){
             buffer.append((if(!fetchContent){
-              DiffInfo(ChangeType.ADD, null, treeWalk.getPathString, None, None)
+              DiffInfoExtend(ChangeType.ADD, null, treeWalk.getPathString, None)
             } else {
-              DiffInfo(ChangeType.ADD, null, treeWalk.getPathString, None,
-                JGitUtil.getContentFromId(git, treeWalk.getObjectId(0), false).filter(FileUtil.isText).map(convertFromByteArray))
+//              DiffInfo(ChangeType.ADD, null, treeWalk.getPathString, None,
+//                JGitUtil.getContentFromId(git, treeWalk.getObjectId(0), false).filter(FileUtil.isText).map(convertFromByteArray))
+
+//              val newC = JGitUtil.getContentFromId(git, treeWalk.getObjectId(0), false).filter(FileUtil.isText).map(convertFromByteArrayToLines) match {
+//                case Some(it) =>
+//                  it.asScala.toList.asJava
+//                case _ =>
+//                  List[String]().asJava
+//              }
+//
+//              val drg = new DiffRowGenerator.Builder()
+//                .showInlineDiffs(true)
+//                .columnWidth(500)
+//                .ignoreBlankLines(false)
+//                .ignoreWhiteSpaces(false)
+//                .build()
+//
+//              val diffRows = drg.generateDiffRows(List[String]().asJava, newC).asScala
+//
+              DiffInfoExtend(ChangeType.ADD, null, treeWalk.getPathString, Some(List[DiffRow]()))
             }))
           }
           (buffer.toList, None)
@@ -433,7 +461,7 @@ object JGitUtil {
     }
   }
 
-  def getDiffs(git: Git, from: String, to: String, fetchContent: Boolean): List[DiffInfo] = {
+  def getDiffs(git: Git, from: String, to: String, isSplit: Boolean, fetchContent: Boolean): List[DiffInfoExtend] = {
     val reader = git.getRepository.newObjectReader
     val oldTreeIter = new CanonicalTreeParser
     oldTreeIter.reset(reader, git.getRepository.resolve(from + "^{tree}"))
@@ -444,11 +472,115 @@ object JGitUtil {
     import scala.collection.JavaConverters._
     git.diff.setNewTree(newTreeIter).setOldTree(oldTreeIter).call.asScala.map { diff =>
       if(!fetchContent || FileUtil.isImage(diff.getOldPath) || FileUtil.isImage(diff.getNewPath)){
-        DiffInfo(diff.getChangeType, diff.getOldPath, diff.getNewPath, None, None)
+        DiffInfoExtend(diff.getChangeType, diff.getOldPath, diff.getNewPath, None)
       } else {
-        DiffInfo(diff.getChangeType, diff.getOldPath, diff.getNewPath,
-          JGitUtil.getContentFromId(git, diff.getOldId.toObjectId, false).filter(FileUtil.isText).map(convertFromByteArray),
-          JGitUtil.getContentFromId(git, diff.getNewId.toObjectId, false).filter(FileUtil.isText).map(convertFromByteArray))
+        val df = if (isSplit) new GitBucketSplitDiffFormatter else new GitBucketUnifiedDiffFormatter
+        //val df = new DiffFormatter(System.out)
+        df.setRepository(git.getRepository)
+        df.setDetectRenames(true)
+        df.format(diff)
+        val testc = df.getDiffContents
+        // unified diffっぽい
+        testc.map { dr =>
+          dr match {
+            case DiffUnifiedRow(e1, e2) =>
+              (e1, e2) match {
+                case (DiffEmptyElement, e2: DiffAddElement) =>
+                  println(s"-----: ${e2.lineNumber.formatted("%5s")}: + ${e2.content}")
+                case (e1: DiffDeleteElement, DiffEmptyElement) =>
+                  println(s"${e1.lineNumber.formatted("%5s")}: -----: - ${e1.content}")
+                case (e1: DiffDeleteElement, e2: DiffAddElement) =>
+                  println(s"${e1.lineNumber.formatted("%5s")}: ${e2.lineNumber.formatted("%5s")}:  ${e1.content}")
+                case (e1: DiffContextElement, e2: DiffContextElement) =>
+                  println(s"${e1.lineNumber.formatted("%5s")}: ${e2.lineNumber.formatted("%5s")}:  ${e1.content}")
+
+              }
+//              e1 match {
+//                case e: DiffAddElement =>
+//                  //println(s"${e.lineNumber.formatted("%5s")}: + ${e.content}")
+//                case e: DiffDeleteElement =>
+//                  println(s"${e.lineNumber.formatted("%5s")}: - ${e.content}")
+//                case e: DiffContextElement =>
+//                  println(s"${e.lineNumber.formatted("%5s")}:   ${e.content}")
+//                case DiffEmptyElement =>
+//              }
+//              e2 match {
+//                case e: DiffAddElement =>
+//                  println(s"${e.lineNumber.formatted("%5s")}: + ${e.content}")
+//                case e: DiffDeleteElement =>
+//                  //println(s"${e.lineNumber.formatted("%5s")}: - ${e.content}")
+//                case e: DiffContextElement =>
+//                  //println(s"${e.lineNumber.formatted("%5s")}:   ${e.content}")
+//                case DiffEmptyElement =>
+//              }
+            case DiffSplitRow(e1, e2) =>
+              e1 match {
+                case e: DiffAddElement =>
+                  print(s"${e.lineNumber.formatted("%5s")}: + ${e.content}")
+                case e: DiffDeleteElement =>
+                  print(s"${e.lineNumber.formatted("%5s")}: - ${e.content}")
+                case e: DiffContextElement =>
+                  print(s"${e.lineNumber.formatted("%5s")}:   ${e.content}")
+                case DiffEmptyElement =>
+                  print(s"              ")
+              }
+              print("\t\t")
+              e2 match {
+                case e: DiffAddElement =>
+                  print(s"${e.lineNumber.formatted("%5s")}: + ${e.content}")
+                case e: DiffDeleteElement =>
+                  print(s"${e.lineNumber.formatted("%5s")}: - ${e.content}")
+                case e: DiffContextElement =>
+                  print(s"${e.lineNumber.formatted("%5s")}:   ${e.content}")
+                case DiffEmptyElement =>
+                  print(s"              ")
+              }
+              print("\n")
+          }
+        }
+//        // split 表示っぴ
+//        println("split")
+//        testc.sliding(2, 2).foreach { diffoldnew =>
+//          val (old, news) = (diffoldnew(0), diffoldnew(1))
+//          old match {
+//            case DiffContentRowOld("", line, content) =>  print(s"${line.formatted("%5s")}   $content")
+//            case DiffContentRowOld("-", line, content) => print(s"${line.formatted("%5s")} - $content")
+//            case _ => print("カラ")
+//          }
+//          print("\t\t")
+//          news match {
+//            case DiffContentRowNew("+", line, content) => print(s"${line.formatted("%5s")} + $content")
+//            case DiffContentRowNew("-", line, content) => print(s"${line.formatted("%5s")} -  カラ")
+//            case DiffContentRowNew("", line, content) =>  print(s"${line.formatted("%5s")}   $content")
+//            case _ => print("カラ")
+//          }
+//          print("\n")
+//        }
+
+        val oldC = JGitUtil.getContentFromId(git, diff.getOldId.toObjectId, false).filter(FileUtil.isText).map(convertFromByteArrayToLines) match {
+          case Some(it) =>
+            it.asScala.toList.asJava
+          case _ =>
+            List[String]().asJava
+        }
+        val newC = JGitUtil.getContentFromId(git, diff.getNewId.toObjectId, false).filter(FileUtil.isText).map(convertFromByteArrayToLines) match {
+          case Some(it) =>
+            it.asScala.toList.asJava
+          case _ =>
+            List[String]().asJava
+        }
+
+//        val drg = new DiffRowGenerator.Builder()
+//          .showInlineDiffs(true)
+//          .columnWidth(500)
+//          .ignoreBlankLines(false)
+//          .ignoreWhiteSpaces(false)
+//          .build()
+//
+//        val diffRows = drg.generateDiffRows(oldC, newC).asScala
+
+        DiffInfoExtend(diff.getChangeType, diff.getOldPath, diff.getNewPath, Some(List[DiffRow]()))
+
       }
     }.toList
   }
@@ -748,4 +880,266 @@ object JGitUtil {
       }
     }
   }
+
+//trait DiffContentRow
+//case class DiffContentRowEmpty() extends DiffContentRow
+//case class DiffContentRowOld(val prefix: String, val lineNumber: Int, val content: String) extends DiffContentRow
+//case class DiffContentRowNew(val prefix: String, val lineNumber: Int, val content: String) extends DiffContentRow
+//
+//class GitBucketDiffFormatter extends DiffFormatter(NullOutputStream.INSTANCE) {
+//  private var oldPath: String = _
+//  private var newPath: String = _
+//  private var changeType: ChangeType = _
+//
+//  private var aStartLine: Int = _
+//  private var aEndLine: Int = _
+//  private var aCur: Int = _
+//
+//  private var bStartLine: Int = _
+//  private var bEndLine: Int = _
+//  private var bCur: Int = _
+//
+//  private var addLineCount: Int = _
+//  private var delLineCount: Int = _
+//  private var con = ArrayBuffer[DiffContentRow]()
+//
+//  def getDiffContents = con
+//
+//  override def writeContextLine(text: RawText, line: Int): Unit = {
+//    con += DiffContentRowOld("", aStartLine + aCur, text.getString(line))
+//    con += DiffContentRowNew("", bStartLine + bCur, text.getString(line))
+//    aCur += 1
+//    bCur += 1
+//  }
+//
+//  /**
+//   *
+//   * @param text
+//   * @param line
+//   */
+//  override def writeAddedLine(text: RawText, line: Int): Unit = {
+//    // 直前がremoveの場合は「変更」とみなす
+//    // それ以外は「挿入」
+//    //con += DiffContentRowEmpty()
+//    con += DiffContentRowNew("+", bStartLine + bCur, text.getString(line))
+//    bCur += 1
+//    addLineCount += 1
+//  }
+//
+//  override def writeRemovedLine(text: RawText, line: Int): Unit = {
+//    // 直前が
+//    con += DiffContentRowOld("-", aStartLine + aCur, text.getString(line))
+//    //con += DiffContentRowEmpty()
+//    aCur += 1
+//    delLineCount += 1
+//  }
+//
+//  override def writeHunkHeader(aStartLine: Int, aEndLine: Int, bStartLine: Int, bEndLine: Int): Unit = {
+//    this.aStartLine = aStartLine + 1
+//    this.aEndLine = aEndLine + 1
+//    this.bStartLine = bStartLine + 1
+//    this.bEndLine = bEndLine + 1
+//  }
+//
+//  override def writeLine(prefix: Char, text: RawText, cur: Int): Unit = {}
+//
+//  override def formatGitDiffFirstHeaderLine(o: ByteArrayOutputStream, `type`: ChangeType, oldPath: String, newPath: String): Unit = {
+//    this.oldPath = oldPath
+//    this.newPath = newPath
+//    this.changeType = `type`
+//  }
+//
+//  override def formatIndexLine(o: OutputStream, ent: DiffEntry): Unit = {}
+//}
+
+
+/**
+ * Diff要素
+ */
+abstract class DiffElement
+case object DiffEmptyElement extends DiffElement
+case class DiffAddElement(val lineNumber: Int, val content: String) extends DiffElement
+case class DiffDeleteElement(val lineNumber: Int, val content: String) extends DiffElement
+case class DiffContextElement(val lineNumber: Int, val content: String) extends DiffElement
+
+abstract class DiffRow
+case class DiffUnifiedRow(val e1: DiffElement, val e2: DiffElement) extends DiffRow
+case class DiffSplitRow(val e1: DiffElement, val e2: DiffElement) extends DiffRow
+
+class GitBucketDiffBaseFormatter extends DiffFormatter(NullOutputStream.INSTANCE) {
+  protected var oldPath: String = _
+  protected var newPath: String = _
+  protected var changeType: ChangeType = _
+
+  protected var aStartLine: Int = _
+  protected var aEndLine: Int = _
+  protected var aCur: Int = _
+
+  protected var bStartLine: Int = _
+  protected var bEndLine: Int = _
+  protected var bCur: Int = _
+
+  protected var addLineCount: Int = _
+  protected var delLineCount: Int = _
+  protected val con = ArrayBuffer[DiffRow]()
+
+  def getDiffContents = con
+
+  override def writeContextLine(text: RawText, line: Int): Unit = {
+    aCur += 1
+    bCur += 1
+  }
+
+  override def writeAddedLine(text: RawText, line: Int): Unit = {
+    bCur += 1
+    addLineCount += 1
+  }
+
+  override def writeRemovedLine(text: RawText, line: Int): Unit = {
+    aCur += 1
+    delLineCount += 1
+  }
+
+  override def formatGitDiffFirstHeaderLine(o: ByteArrayOutputStream, `type`: ChangeType, oldPath: String, newPath: String): Unit = {
+    this.oldPath = oldPath
+    this.newPath = newPath
+    this.changeType = `type`
+  }
+
+  override def writeHunkHeader(aStartLine: Int, aEndLine: Int, bStartLine: Int, bEndLine: Int): Unit = {
+    this.aStartLine = aStartLine + 1
+    this.aEndLine = aEndLine + 1
+    this.aCur = 0
+    this.bStartLine = bStartLine + 1
+    this.bEndLine = bEndLine + 1
+    this.bCur = 0
+
+  }
+
+}
+
+class GitBucketUnifiedDiffFormatter extends GitBucketDiffBaseFormatter {
+  val StateContext = "C"
+  val StateInsert = "I"
+  val StateDelete = "D"
+
+  private val tempAddedLines = ArrayBuffer[DiffElement]()
+  private val tempRemovedLines = ArrayBuffer[DiffElement]()
+  private var state : String = StateContext
+
+  override def getDiffContents = {
+//    tempRemovedLines.zipAll(tempAddedLines, DiffEmptyElement, DiffEmptyElement).map { p =>
+//      con += DiffUnifiedRow(p._1, p._2)
+//    }
+//    tempAddedLines.clear()
+//    tempRemovedLines.clear()
+    con
+  }
+
+  override def writeContextLine(text: RawText, line: Int): Unit = {
+//    println("writeContextLine")
+    state match {
+      case s if (StateInsert.equals(s) || StateDelete.equals(s)) =>
+        getDiffContents
+      case _ =>
+    }
+    state = StateContext
+    val ele1 = DiffContextElement(aStartLine + aCur, text.getString(line))
+    val ele2 = DiffContextElement(bStartLine + bCur, text.getString(line))
+//    val row = DiffUnifiedRow(ele1, ele2)
+    con += DiffUnifiedRow(ele1, ele2)
+//    val ele = DiffContextElement(line+1, text.getString(line))
+//    con += DiffUnifiedRow(ele)
+    super.writeContextLine(text, line)
+  }
+
+  override def writeAddedLine(text: RawText, line: Int): Unit = {
+//    println("writeAddedLine")
+//    tempAddedLines += DiffAddElement(line+1, text.getString(line))
+//    state = StateInsert
+    val ele = DiffAddElement(line+1, text.getString(line))
+    con += DiffUnifiedRow(DiffEmptyElement, ele)
+    super.writeAddedLine(text, line)
+  }
+
+  override def writeRemovedLine(text: RawText, line: Int): Unit = {
+//    println("writeRemovedLine")
+//    tempRemovedLines += DiffDeleteElement(line+1, text.getString(line))
+//    state = StateDelete
+    val ele = DiffDeleteElement(line+1, text.getString(line))
+    con += DiffUnifiedRow(ele, DiffEmptyElement)
+    super.writeRemovedLine(text, line)
+  }
+
+  override def formatGitDiffFirstHeaderLine(o: ByteArrayOutputStream, `type`: ChangeType, oldPath: String, newPath: String): Unit = {
+    super.formatGitDiffFirstHeaderLine(o, `type`, oldPath, newPath)
+  }
+
+  override def writeHunkHeader(aStartLine: Int, aEndLine: Int, bStartLine: Int, bEndLine: Int): Unit = {
+//    println("writeHunkHeader" + s"$aStartLine , $aEndLine, $bStartLine, $bEndLine")
+    super.writeHunkHeader(aStartLine, aEndLine, bStartLine, bEndLine)
+  }
+}
+
+class GitBucketSplitDiffFormatter extends GitBucketDiffBaseFormatter {
+  val StateContext = "C"
+  val StateInsert = "I"
+  val StateDelete = "D"
+
+  private val tempAddedLines = ArrayBuffer[DiffElement]()
+  private val tempRemovedLines = ArrayBuffer[DiffElement]()
+  private var state : String = StateContext
+
+  override def getDiffContents = {
+    tempRemovedLines.zipAll(tempAddedLines, DiffEmptyElement, DiffEmptyElement).map { p =>
+      con += DiffSplitRow(p._1, p._2)
+    }
+    tempAddedLines.clear()
+    tempRemovedLines.clear()
+    con
+  }
+
+  override def writeContextLine(text: RawText, line: Int): Unit = {
+//    println("writeContextLine")
+    state match {
+      case s if (StateInsert.equals(s) || StateDelete.equals(s)) =>
+        getDiffContents
+      case _ =>
+    }
+    state = StateContext
+    val ele1 = DiffContextElement(aStartLine + aCur, text.getString(line))
+    val ele2 = DiffContextElement(bStartLine + bCur, text.getString(line))
+    val row = DiffSplitRow(ele1, ele2)
+    con += row
+    super.writeContextLine(text, line)
+  }
+
+  override def writeAddedLine(text: RawText, line: Int): Unit = {
+//    println("writeAddedLine")
+    tempAddedLines += DiffAddElement(line+1, text.getString(line))
+    state = StateInsert
+    super.writeAddedLine(text, line)
+  }
+
+  override def writeRemovedLine(text: RawText, line: Int): Unit = {
+//    println("writeRemovedLine")
+    tempRemovedLines += DiffDeleteElement(line+1, text.getString(line))
+    state = StateDelete
+    super.writeRemovedLine(text, line)
+  }
+
+  override def formatGitDiffFirstHeaderLine(o: ByteArrayOutputStream, `type`: ChangeType, oldPath: String, newPath: String): Unit = {
+    super.formatGitDiffFirstHeaderLine(o, `type`, oldPath, newPath)
+  }
+
+  override def writeHunkHeader(aStartLine: Int, aEndLine: Int, bStartLine: Int, bEndLine: Int): Unit = {
+    super.writeHunkHeader(aStartLine, aEndLine, bStartLine, bEndLine)
+  }
+
+  override def flush = {
+//    println("flush")
+    getDiffContents
+    super.flush
+  }
+}
 }

@@ -20,6 +20,7 @@ import gitbucket.core.service.WebHookService.WebHookPayload
 import org.slf4j.LoggerFactory
 import org.eclipse.jgit.merge.MergeStrategy
 import org.eclipse.jgit.errors.NoMergeBaseException
+import gitbucket.core.util.JGitUtil.{DiffInfoExtend, CommitInfo}
 
 
 class PullRequestsController extends PullRequestsControllerBase
@@ -74,10 +75,14 @@ trait PullRequestsControllerBase extends ControllerBase {
     params("id").toIntOpt.flatMap{ issueId =>
       val owner = repository.owner
       val name = repository.name
+      val isSplit = params.get("diff") match {
+        case Some("split") => true
+        case _ => false
+      }
       getPullRequest(owner, name, issueId) map { case(issue, pullreq) =>
         using(Git.open(getRepositoryDir(owner, name))){ git =>
           val (commits, diffs) =
-            getRequestCompareInfo(owner, name, pullreq.commitIdFrom, owner, name, pullreq.commitIdTo)
+            getRequestCompareInfo(owner, name, pullreq.commitIdFrom, owner, name, pullreq.commitIdTo, isSplit)
 
           html.pullreq(
             issue, pullreq,
@@ -89,6 +94,7 @@ trait PullRequestsControllerBase extends ControllerBase {
             getLabels(owner, name),
             commits,
             diffs,
+            isSplit,
             hasWritePermission(owner, name, context.loginAccount),
             repository)
         }
@@ -179,7 +185,7 @@ trait PullRequestsControllerBase extends ControllerBase {
             refUpdate.update()
 
             val (commits, _) = getRequestCompareInfo(owner, name, pullreq.commitIdFrom,
-              pullreq.requestUserName, pullreq.requestRepositoryName, pullreq.commitIdTo)
+              pullreq.requestUserName, pullreq.requestRepositoryName, pullreq.commitIdTo, false)
 
             // close issue by content of pull request
             val defaultBranch = getRepository(owner, name, context.baseUrl).get.repository.defaultBranch
@@ -246,6 +252,10 @@ trait PullRequestsControllerBase extends ControllerBase {
     val Seq(origin, forked) = multiParams("splat")
     val (originOwner, originId) = parseCompareIdentifie(origin, forkedRepository.owner)
     val (forkedOwner, forkedId) = parseCompareIdentifie(forked, forkedRepository.owner)
+    val isSplit = params.get("diff") match {
+      case Some("split") => true
+      case _ => false
+    }
 
     (for(
       originRepositoryName <- if(originOwner == forkedOwner){
@@ -276,11 +286,12 @@ trait PullRequestsControllerBase extends ControllerBase {
 
         val (commits, diffs) = getRequestCompareInfo(
           originRepository.owner, originRepository.name, oldId.getName,
-          forkedRepository.owner, forkedRepository.name, newId.getName)
+          forkedRepository.owner, forkedRepository.name, newId.getName, isSplit)
 
         html.compare(
           commits,
           diffs,
+          isSplit,
           (forkedRepository.repository.originUserName, forkedRepository.repository.originRepositoryName) match {
             case (Some(userName), Some(repositoryName)) => (userName, repositoryName) :: getForkedRepositories(userName, repositoryName)
             case _ => (forkedRepository.owner, forkedRepository.name) :: getForkedRepositories(forkedRepository.owner, forkedRepository.name)
@@ -441,7 +452,7 @@ trait PullRequestsControllerBase extends ControllerBase {
     }
 
   private def getRequestCompareInfo(userName: String, repositoryName: String, branch: String,
-      requestUserName: String, requestRepositoryName: String, requestCommitId: String): (Seq[Seq[CommitInfo]], Seq[DiffInfo]) =
+      requestUserName: String, requestRepositoryName: String, requestCommitId: String, isSplitDiff: Boolean): (Seq[Seq[CommitInfo]], Seq[DiffInfoExtend]) =
     using(
       Git.open(getRepositoryDir(userName, repositoryName)),
       Git.open(getRepositoryDir(requestUserName, requestRepositoryName))
@@ -455,7 +466,7 @@ trait PullRequestsControllerBase extends ControllerBase {
         helpers.date(commit1.commitTime) == view.helpers.date(commit2.commitTime)
       }
 
-      val diffs = JGitUtil.getDiffs(newGit, oldId.getName, newId.getName, true)
+      val diffs = JGitUtil.getDiffs(newGit, oldId.getName, newId.getName, isSplitDiff, true)
 
       (commits, diffs)
     }

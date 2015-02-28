@@ -4,7 +4,8 @@
   tags: List[String],
   comments: List[gitbucket.core.model.Comment],
   repository: gitbucket.core.service.RepositoryService.RepositoryInfo,
-  diffs: Seq[gitbucket.core.util.JGitUtil.DiffInfo],
+  diffs: Seq[gitbucket.core.util.JGitUtil.DiffInfoExtend],
+  isSplit: Boolean,
   oldCommitId: Option[String],
   hasWritePermission: Boolean)(implicit context: gitbucket.core.controller.Context)
 @import gitbucket.core.util.Implicits._
@@ -83,7 +84,7 @@
         </td>
       </tr>
     </table>
-    @helper.html.diff(diffs, repository, Some(commit.id), oldCommitId, true, None, hasWritePermission, true)
+    @helper.html.diff(diffs, isSplit, repository, Some(commit.id), oldCommitId, true, None, hasWritePermission, true)
     <label class="checkbox">
       <input type="checkbox" id="show-notes"> Show line notes below
     </label>

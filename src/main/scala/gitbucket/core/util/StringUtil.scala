@@ -1,10 +1,11 @@
 package gitbucket.core.util
 
+import java.io.ByteArrayInputStream
 import java.net.{URLDecoder, URLEncoder}
 import org.mozilla.universalchardet.UniversalDetector
 import ControlUtil._
 import org.apache.commons.io.input.BOMInputStream
-import org.apache.commons.io.IOUtils
+import org.apache.commons.io.{LineIterator, IOUtils}
 
 object StringUtil {
 
@@ -46,6 +47,8 @@ object StringUtil {
       }
     }
 
+  def convertFromByteArrayToLines(content: Array[Byte]): LineIterator =
+    IOUtils.lineIterator(new BOMInputStream(new ByteArrayInputStream(content)), detectEncoding(content))
   /**
    * Converts line separator in the given content.
    *
