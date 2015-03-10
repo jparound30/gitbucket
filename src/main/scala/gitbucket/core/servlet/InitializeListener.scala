@@ -180,7 +180,7 @@ class InitializeListener extends ServletContextListener {
     }
     org.h2.Driver.load()
 
-    defining(getConnection()){ conn =>
+    using(getConnection()){ conn =>
       // Migration
       logger.debug("Start schema update")
       Versions.update(conn, headVersion, getCurrentVersion(), versions, Thread.currentThread.getContextClassLoader){ conn =>
@@ -193,9 +193,10 @@ class InitializeListener extends ServletContextListener {
 
   }
 
-  def contextDestroyed(event: ServletContextEvent): Unit = {
+  override def contextDestroyed(event: ServletContextEvent): Unit = {
     // Shutdown plugins
     PluginRegistry.shutdown(event.getServletContext)
+    Database.closeDataSource()
   }
 
   private def getConnection(): Connection =

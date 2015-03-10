@@ -1,7 +1,7 @@
 
 import gitbucket.core.controller._
 import gitbucket.core.plugin.PluginRegistry
-import gitbucket.core.servlet.{TransactionFilter, BasicAuthenticationFilter}
+import gitbucket.core.servlet.{Database, TransactionFilter, BasicAuthenticationFilter}
 import gitbucket.core.util.Directory
 
 //import jp.sf.amateras.scalatra.forms.ValidationJavaScriptProvider
@@ -44,5 +44,10 @@ class ScalatraBootstrap extends LifeCycle {
     if(!dir.exists){
       dir.mkdirs()
     }
+  }
+
+  override def destroy(context: ServletContext): Unit = {
+    println("destroy : Bootstrap")
+    Database.closeDataSource()
   }
 }
